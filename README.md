@@ -19,7 +19,7 @@ the package names differ but the config files are identical.
 |---|---|---|
 | Wayfire 0.11 | `wayfire wf-config wf-shell wcm` | the compositor |
 | extra plugins | `wayfire-plugins-extra-git`, `wayfire-plugin-pixdecor-git` (AUR) | animations, window decorations |
-| `peek` (optional) | build from source, see §4 | Windows-11-style Alt+Tab with live thumbnails |
+| `wswitch` | `wswitch` (AUR) or build, see §4 | Alt+Tab window switcher (external, can't crash the compositor) |
 | Noctalia | `noctalia` (AUR) | the shell / panel / launcher |
 | portals | `xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk` | screen-share / file pickers |
 | polkit agent | `hyprpolkitagent` (or `lxqt-policykit` / `polkit-gnome`) | auth prompts |
@@ -35,7 +35,7 @@ sudo pacman -S wayfire wf-config wf-shell wcm \
   hyprpolkitagent grim slurp satty wl-clipboard vesktop keyd
 
 # AUR (paru/yay):
-paru -S wayfire-plugins-extra-git wayfire-plugin-pixdecor-git noctalia
+paru -S wayfire-plugins-extra-git wayfire-plugin-pixdecor-git noctalia wswitch
 ```
 
 > `wayfire-plugins-extra-git` / `pixdecor-git` build against `wayfire-git`, but
@@ -101,7 +101,7 @@ to get your monitor names/modes).
 [core]
 plugins = \
   animate extra-animations autostart blur command vswitch expo \
-  foreign-toplevel grid ipc ipc-rules move place resize scale peek \
+  foreign-toplevel grid ipc ipc-rules move place resize scale \
   stipc window-rules wm-actions zoom pixdecor cube switcher vswipe \
   force-fullscreen alpha annotate view-shot
 background_color = \#1A1A1AFF
@@ -133,6 +133,7 @@ autostart_wf_shell = false
 # screen-sharing work (see §5).
 1_portal = bash -c 'sleep 2; dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP; systemctl --user restart xdg-desktop-portal.service; systemctl --user restart xdg-desktop-portal-wlr.service'
 2_shell = noctalia -d
+3_wswitch = wswitch --daemon
 
 [command]
 # screenshots (the `shot` script from §9)
@@ -164,6 +165,12 @@ binding_term = <super> KEY_ENTER | <super> KEY_T
 command_term = kitty --directory ~
 binding_files = <super> KEY_E
 command_files = xdg-open ~
+
+# --- Alt+Tab: wswitch (external daemon, see §4) ---
+binding_alttab = <alt> KEY_TAB
+command_alttab = wswitch next
+binding_alttab_prev = <alt> <shift> KEY_TAB
+command_alttab_prev = wswitch prev
 
 # --- media / volume / brightness (routed through Noctalia for the OSD) ---
 binding_media_toggle = KEY_PLAYPAUSE | KEY_PLAYCD | KEY_PLAY
@@ -234,27 +241,14 @@ spacing = 36
 middle_click_close = false
 
 [switcher]
-# 3D coverflow on Super+Tab (secondary switcher; peek is the Alt+Tab one)
+# 3D coverflow on Super+Tab (secondary switcher; Alt+Tab is wswitch, see §4)
 next_view = <super> KEY_TAB
 prev_view = <super> <shift> KEY_TAB
 speed = 250ms circle
 
-[peek]
-# Windows-11 Alt+Tab (see §4). If you did NOT build the plugin, delete "peek"
-# from the [core] plugins line above and this whole section.
-activate = <alt> KEY_TAB
-activate_prev = <alt> <shift> KEY_TAB
-middle_click_close = true
-hover_focus = true
-include_minimized = true
-duration = 200ms circle
-thumbnail_size = 280
-spacing = 24
-outer_margin = 56
-title_overlay = all
-title_position = bottom
-bg_color = 0.07 0.07 0.09 0.92
-text_color = 0.94 0.94 0.95 1.0
+# NOTE: Alt+Tab itself is wswitch — an external daemon, not a Wayfire plugin.
+# It's started from [autostart] and driven by the binding_alttab commands above.
+# See §4. There is no [peek]/switcher plugin section for it.
 
 [animate]
 open_animation = carpet
@@ -318,7 +312,7 @@ filename = /tmp/snapshot-%F-%T.png
 | `Super`+drag / `Alt`+drag | move window · `Alt`+right-drag resize |
 | `Super`+arrows | snap window to half/edge |
 | `Alt+Super`+arrows | switch workspace (`+Shift` drags the window) |
-| `Alt+Tab` | window switcher (peek) |
+| `Alt+Tab` / `Alt+Shift+Tab` | window switcher (wswitch) — hold Alt, tap Tab, release to pick |
 | `Super+Tab` | 3D coverflow switcher |
 | `Super+\`` | exposé (all windows on this workspace) |
 | `Super+W` | expo (all workspaces) |
@@ -361,35 +355,63 @@ filename = /tmp/snapshot-%F-%T.png
 
 ---
 
-## 4. `peek` — the Alt+Tab switcher (optional but recommended)
+## 4. `wswitch` — the Alt+Tab switcher
 
-Wayfire's stock Alt+Tab is either a 3D coverflow or a full-screen grid. `peek`
-is a horizontal strip of **live thumbnails** you tab through (wrap-around),
-middle-click to close. It's a compositor plugin (external apps can't draw live
-per-window thumbnails on Wayfire).
+Wayfire's own switchers are a 3D coverflow (`switcher`) or a full-screen exposé
+(`scale`). For a plain Alt+Tab, **wswitch** draws an icon+title card grid. It's
+an **external layer-shell client** (not a compositor plugin), so a bug in it
+can't take the session down — which is why it's used here instead of an
+in-process plugin.
 
-Source: `git@git.clockmost.com:Benylin/wayfire-peek.git` — ask Mario for access,
-or he can send you a tarball.
+No live thumbnails — Wayfire 0.11 doesn't expose per-window capture to external
+clients, so nothing outside the compositor can show them.
+
+**Install** — AUR is easiest:
 
 ```sh
-git clone git@git.clockmost.com:Benylin/wayfire-peek.git
-cd wayfire-peek
-meson setup build
-ninja -C build
-sudo ninja -C build install      # installs libpeek.so + peek.xml
+paru -S wswitch          # or: yay -S wswitch
 ```
 
-There's an Arch `PKGBUILD` in `packaging/` if you'd rather have a package
-(`makepkg -si`).
+Or build from source (deps: `wayland cairo pango json-c libxkbcommon glib2
+librsvg` + `wayland-protocols pkgconf gcc`):
 
-**A brand-new Wayfire plugin is only scanned at compositor startup** — after the
-first install you must fully log out and back in once. After that it hot-reloads
-config like everything else.
+```sh
+git clone https://github.com/DreamMaoMao/wswitch.git
+cd wswitch
+make
+make install-user        # -> ~/.local/bin/wswitch + ~/.config/wswitch/
+#  (or: sudo make install PREFIX=/usr  for a system install)
+```
 
-The `[peek]` section and the `peek` entry in the `plugins` line are already in
-the §2 config. If you skip peek, remove both and Alt+Tab falls back to nothing —
-add `fast-switcher` to the plugins line and set `[fast-switcher] activate =
-<alt> KEY_TAB` for a plain icon switcher instead.
+**Configure** `~/.config/wswitch/config.ini`:
+
+```ini
+[general]
+mode = overview           # flat window list (not "context" workspace grouping)
+
+[theme]
+name = snappy-slate.ini   # a file that EXISTS in ~/.config/wswitch/themes/
+                          # (the shipped example names a theme that doesn't —
+                          #  check `ls ~/.config/wswitch/themes/`)
+
+[icons]
+theme = Papirus-Dark
+fallback = Papirus
+```
+
+**Wiring** is already in the §2 config: the `3_wswitch` autostart line starts
+the daemon, and `binding_alttab` / `binding_alttab_prev` drive it. If you did a
+**system** install, drop the `~/.local/bin/` path — just `wswitch --daemon` /
+`wswitch next`.
+
+**Use:** hold `Alt`, tap `Tab` (or `Shift+Tab`) to cycle, release `Alt` to
+select, `Esc` to cancel. CLI verbs: `--daemon`, `next`, `prev`, `toggle`,
+`hide`, `quit`. If it ever stops responding: `pkill wswitch; wswitch --daemon &`.
+
+**Zero-dependency fallback:** if wswitch misbehaves, add `fast-switcher` to the
+`[core] plugins` line, delete the `binding_alttab*` command lines, and add
+`[fast-switcher]` / `activate = <alt> KEY_TAB` — that's Wayfire's built-in plain
+switcher, no external process.
 
 ---
 
@@ -532,7 +554,7 @@ notify-send -t 2000 "shot" "saved ${OUT##*/} · copied"
 |---|---|
 | No bar/dock after login | `noctalia -d &` from a terminal; check `noctalia` is on `PATH` (`which noctalia`). Look at `~/.local/share/noctalia/` logs. |
 | Screen-share picker is empty / errors | `systemctl --user restart xdg-desktop-portal xdg-desktop-portal-wlr`; confirm `wayfire-portals.conf` exists and `XDG_CURRENT_DESKTOP=Wayfire`. |
-| `peek` options not recognised / Alt+Tab dead | Full logout/login once after installing the plugin. Check `~/.config/wayfire.ini` has `peek` in the `plugins` line. |
+| Alt+Tab does nothing | Is the daemon up? `pgrep wswitch` — if not, `wswitch --daemon &` and check `~/.config/wayfire.ini` has the `binding_alttab` lines. Theme name in `~/.config/wswitch/config.ini` must match a real file in `themes/`. |
 | Config change ignored | `[workarounds] auto_reload_config = true` must be set; check the Wayfire log for a parse error (a bad line disables the reload). |
 | Electron apps have no titlebar / can't be moved | `[workarounds] force_preferred_decoration_mode = true`; move any window with `Super`+drag regardless. |
 | Auth dialogs never appear (mounting drives, etc.) | polkit agent not running: `systemctl --user start hyprpolkitagent`. |
