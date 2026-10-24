@@ -1,6 +1,6 @@
 # Wayfire + Noctalia desktop — setup guide
 
-This is the "engine" of Mario's desktop with the Arknights **Endfield** theming
+This is the "engine" of my desktop with the Arknights **Endfield** theming
 stripped out: **Wayfire** (wlroots compositor) running the **Noctalia** shell
 (bar / dock / launcher / control-centre / notifications), plus the fixes that
 make screen-sharing and Discord actually work on wlroots.
